@@ -89,10 +89,10 @@ if __name__ == '__main__':
     cl_loss = nn.CrossEntropyLoss()
     da_loss = nn.CrossEntropyLoss()    
     criterion = DALoss(cl_loss, da_loss)
-    #TODO 
+ 
     metrics = {
+        'loss': Loss(criterion),
         'accuracy': Accuracy(),
-        'loss': Loss(criterion)
     }
     
     trainer = DATrainer(model, optimizer,
