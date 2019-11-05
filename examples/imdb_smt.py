@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchnlp.datasets import imdb_dataset  # type: ignore
 from torchnlp.datasets import smt_dataset  # type: ignore
 
-from slp.data.collators import SequenceClassificationCollator
+from slp.data.collators import DACollator
 from slp.data.transforms import SpacyTokenizer, ToTokenIds, ToTensor
 from slp.modules.daclassifier import DAClassifier, DALoss
 from slp.modules.rnn import WordRNN
@@ -19,9 +19,10 @@ from slp.util.embeddings import EmbeddingsLoader
 
 
 class DatasetWrapper(Dataset):
-    def __init__(self, dataset, label):
+    def __init__(self, dataset, name):
         self.dataset = dataset
-        self.label = label
+        self.name = name
+        self.label = 'sentiment' if self.name == 'imdb' else 'label'
         self.transforms = []
         self.label_encoder = (LabelEncoder()
                               .fit([d[self.label] for d in dataset]))
@@ -39,12 +40,13 @@ class DatasetWrapper(Dataset):
         target = self.label_encoder.transform([target])[0]
         for t in self.transforms:
             text = t(text)
-        return text, target
+        domain = self.name
+        return text, target, domain
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-collate_fn = SequenceClassificationCollator(device='cpu')
+collate_fn = DACollator(device='cpu')
 
 
 if __name__ == '__main__':
@@ -56,8 +58,10 @@ if __name__ == '__main__':
     to_token_ids = ToTokenIds(word2idx)
     to_tensor = ToTensor(device='cpu')
 
-    def create_dataloader(d, label):
-        d = (DatasetWrapper(d, label).map(tokenizer).map(to_token_ids).map(to_tensor))
+    def create_dataloader(d1, d2, name1, name2):
+        d1 = (DatasetWrapper(d1, name1).map(tokenizer).map(to_token_ids).map(to_tensor))
+        d2 = (DatasetWrapper(d2, name2).map(tokenizer).map(to_token_ids).map(to_tensor))
+        d = ConcatDataset(d1, d2)
         return DataLoader(
             d, batch_size=32,
             num_workers=1,
@@ -65,15 +69,15 @@ if __name__ == '__main__':
             shuffle=True,
             collate_fn=collate_fn)
 
-    train_loader1, dev_loader1 = map(
-        create_dataloader,
-        imdb_dataset(directory='../data/', train=True, test=True),
-        'sentiment')
-    
-    train_loader2, dev_loader2 = map(
-        create_dataloader,
-        smt_dataset(directory='../data/', train=True, dev=True),
-        'label')
+    train_loader = create_dataloader(
+        imdb_dataset(directory='../data/', train=True),
+        smt_dataset(directory='../data/', train=True),
+        'imdb', 'smt')
+
+    dev_loader = create_dataloader(
+        imdb_dataset(directory='../data/', test=True),
+        smt_dataset(directory='../data/', dev=True),
+        'imdb', 'smt')
     
     model = DAClassifier(
         WordRNN(256, embeddings, bidirectional=True, merge_bi='cat',
