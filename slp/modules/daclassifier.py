@@ -17,8 +17,10 @@ def grad_reverse(x):
 
 class DALoss(nn.Module):
     def __init__(self, loss_fn_cl, loss_fn_d):
+        super(DALoss, self).__init__()
         self.loss_fn_cl = loss_fn_cl
         self.loss_fn_d = loss_fn_d
+
     def forward(self, pred, targets, domain_pred, domain_targets):
         loss_cl = self.loss_fn_cl(pred, targets)
         loss_d = self.loss_fn_d(domain_pred, domain_targets)
@@ -35,7 +37,7 @@ class DAClassifier(nn.Module):
                       activation='none', layer_norm=False,
                       dropout=0.)
 
-    def forward(self, *args, **kwargs):
-        x = self.encoder(*args, **kwargs)
+    def forward(self, x, lengths):
+        x = self.encoder(x, lengths)
         y = grad_reverse(x)
         return self.clf(x), self.da(y)

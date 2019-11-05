@@ -304,13 +304,16 @@ class DATrainer(Trainer):
         domains = to_device(batch[2],
                                 device=self.device,
                                 non_blocking=self.non_blocking)
-        return inputs, targets, domains
+        lengths = to_device(batch[3],
+                                device=self.device,
+                                non_blocking=self.non_blocking)
+        return inputs, targets, domains, lengths
 
     def get_predictions_and_targets(
             self: TrainerType,
             batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
-        inputs, targets, domains = self.parse_batch(batch)
-        y_pred, d_pred = self.model(inputs)
+        inputs, targets, domains, lengths = self.parse_batch(batch)
+        y_pred, d_pred = self.model(inputs, lengths)
         return y_pred, targets, d_pred, domains
 
     def train_step(self: TrainerType,
@@ -336,5 +339,5 @@ class DATrainer(Trainer):
         self.model.eval()
         with torch.no_grad():
             y_pred, targets, d_pred, domains = self.get_predictions_and_targets(batch)
-            return y_pred, targets, d_pred, domains
+            return y_pred, targets
     

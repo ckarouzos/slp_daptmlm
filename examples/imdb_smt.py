@@ -5,7 +5,7 @@ from ignite.metrics import Loss, Accuracy
 from sklearn.preprocessing import LabelEncoder
 
 from torch.optim import Adam
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, ConcatDataset
 
 from torchnlp.datasets import imdb_dataset  # type: ignore
 from torchnlp.datasets import smt_dataset  # type: ignore
@@ -14,15 +14,15 @@ from slp.data.collators import DACollator
 from slp.data.transforms import SpacyTokenizer, ToTokenIds, ToTensor
 from slp.modules.daclassifier import DAClassifier, DALoss
 from slp.modules.rnn import WordRNN
-from slp.trainer import DATrainer
+from slp.trainer.trainer import DATrainer
 from slp.util.embeddings import EmbeddingsLoader
 
 
 class DatasetWrapper(Dataset):
     def __init__(self, dataset, name):
         self.dataset = dataset
-        self.name = name
-        self.label = 'sentiment' if self.name == 'imdb' else 'label'
+        self.name = 0 if name == 'imdb' else 1
+        self.label = 'sentiment' if name == 'imdb' else 'label'
         self.transforms = []
         self.label_encoder = (LabelEncoder()
                               .fit([d[self.label] for d in dataset]))
@@ -61,9 +61,9 @@ if __name__ == '__main__':
     def create_dataloader(d1, d2, name1, name2):
         d1 = (DatasetWrapper(d1, name1).map(tokenizer).map(to_token_ids).map(to_tensor))
         d2 = (DatasetWrapper(d2, name2).map(tokenizer).map(to_token_ids).map(to_tensor))
-        d = ConcatDataset(d1, d2)
+        d = ConcatDataset([d1, d2])
         return DataLoader(
-            d, batch_size=32,
+            d, batch_size=4,
             num_workers=1,
             pin_memory=True,
             shuffle=True,
@@ -86,8 +86,9 @@ if __name__ == '__main__':
 
     optimizer = Adam([p for p in model.parameters() if p.requires_grad],
                      lr=1e-3)
-    
-    criterion = DALoss(nn.CrossEntropyLoss(), nn.CrossEntropyLoss())
+    cl_loss = nn.CrossEntropyLoss()
+    da_loss = nn.CrossEntropyLoss()    
+    criterion = DALoss(cl_loss, da_loss)
     #TODO 
     metrics = {
         'accuracy': Accuracy(),
@@ -102,4 +103,4 @@ if __name__ == '__main__':
                                 patience=5,
                                 loss_fn=criterion,
                                 device=DEVICE)
-    trainer.fit(train_loader1, dev_loader1, epochs=10)
+    trainer.fit(train_loader, dev_loader, epochs=10)
