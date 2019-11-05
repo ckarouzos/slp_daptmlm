@@ -91,8 +91,8 @@ if __name__ == '__main__':
     criterion = DALoss(cl_loss, da_loss)
  
     metrics = {
-        'loss': Loss(criterion),
-        'accuracy': Accuracy(),
+        'loss': Loss(criterion)#,
+       # 'accuracy': Accuracy(),
     }
     
     trainer = DATrainer(model, optimizer,
