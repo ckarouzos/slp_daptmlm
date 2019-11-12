@@ -17,6 +17,8 @@ from slp.modules.rnn import WordRNN
 from slp.trainer.trainer import DATrainer
 from slp.util.embeddings import EmbeddingsLoader
 
+def transform_pred_tar(y_pred, targets, d):
+    return y_pred, targets
 
 class DatasetWrapper(Dataset):
     def __init__(self, dataset, name):
@@ -89,10 +91,10 @@ if __name__ == '__main__':
     cl_loss = nn.CrossEntropyLoss()
     da_loss = nn.CrossEntropyLoss()    
     criterion = DALoss(cl_loss, da_loss)
- 
+
     metrics = {
-        'loss': Loss(criterion)#,
-       # 'accuracy': Accuracy(),
+        'loss': Loss(criterion),
+        'accuracy': Accuracy(transform_pred_tar()),
     }
     
     trainer = DATrainer(model, optimizer,

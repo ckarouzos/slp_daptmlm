@@ -340,6 +340,6 @@ class DATrainer(Trainer):
         with torch.no_grad():
             y_pred, targets, d_pred, domains = self.get_predictions_and_targets(batch)
             d = {'domain_pred'  : d_pred,
-		 'domain_targets'  : domains}
+		         'domain_targets'  : domains}
             return y_pred, targets, d
     

@@ -24,7 +24,7 @@ class DALoss(nn.Module):
     def forward(self, pred, targets, domain_pred, domain_targets):
         loss_cl = self.loss_fn_cl(pred, targets)
         loss_d = self.loss_fn_d(domain_pred, domain_targets)
-        return loss_cl-loss_d #NOTSURE
+        return loss_cl + loss_d #NOTSURE
 
 class DAClassifier(nn.Module):
     def __init__(self, encoder, encoded_features, num_classes, num_domains):
