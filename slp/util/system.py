@@ -8,6 +8,7 @@ import time
 import urllib
 import urllib.request
 import validators
+import tarfile
 
 from typing import cast, Any, Callable, Optional, Tuple
 
@@ -173,3 +174,14 @@ def json_load(fname: str) -> types.GenericDict:
 def json_dump(data: types.GenericDict, fname: str) -> None:
     with open(fname, 'w') as fd:
         json.dump(data, fd)
+
+def extract_tar(fname: str, directory: str) -> None:
+    if (fname.endswith("tar.gz")):
+        print(directory)
+        tar = tarfile.open(os.path.join(directory, fname), "r:gz")
+        tar.extractall(path=directory)
+        tar.close()
+    elif (fname.endswith("tar")):
+        tar = tarfile.open(os.path.join(directory, fname), "r:")
+        tar.extractall(path=directory)
+        tar.close()
