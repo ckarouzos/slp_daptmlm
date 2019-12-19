@@ -28,7 +28,8 @@ def transform_d(output):
     d_targets = d['domain_targets']
     return d_pred, d_targets
 
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+DEVICE = 'cpu'
+#DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 collate_fn = DACollator(device='cpu')
 
@@ -59,7 +60,6 @@ def train_test_split(dataset, batch_train, batch_val,
     if shuffle:
         if seed is not None:
             np.random.seed(seed)
-        np.random.shuffle(indices)
 
     train_indices = indices[test_split:]
     val_indices = indices[:test_split]
@@ -75,8 +75,10 @@ if __name__ == '__main__':
     to_token_ids = ToTokenIds(word2idx)
     to_tensor = ToTensor(device='cpu')
 
-    d1 = (AmazonDataset('../../data/', 'books').map(tokenizer).map(to_token_ids).map(to_tensor))
-    d2 = (AmazonDataset('../../data/', 'dvd').map(tokenizer).map(to_token_ids).map(to_tensor))
+    d1 = AmazonDataset('../data/', 'books')
+    d1 = d1.map(tokenizer).map(to_token_ids).map(to_tensor)
+    d2 = AmazonDataset('../data/', 'dvd')
+    #d2 = d2.map(tokenizer).map(to_token_ids).map(to_tensor)
     dataset = ConcatDataset([d1, d2])
 
     train_loader, dev_loader = train_test_split(dataset, 32, 128)

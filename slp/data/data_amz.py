@@ -1,5 +1,7 @@
 import os
 
+from sklearn.preprocessing import LabelEncoder
+
 from torch.utils.data import Dataset 
 
 from slp.util.system import download_url, extract_tar
@@ -9,12 +11,14 @@ AMZ_URL = "http://www.cs.jhu.edu/~mdredze/datasets/sentiment/processed_acl.tar.g
 class AmazonDataset(Dataset):
     def __init__(self, directory, domain, transforms=[]):
         self.domain = domain
+        self.dl = 0 if domain == 'books' else 1
         self.directory = directory
-        self.domain_dir_path = os.path.join(self.directory, "processed_acl/", self.domain, "/")
+        self.domain_dir_path = os.path.join(self.directory, "processed_acl/", self.domain, "")
         download_url(AMZ_URL, self.directory)
         extract_tar("processed_acl.tar.gz", self.directory)
         self.transforms = transforms
         self.texts, self.labels = self.get_data()
+        self.label_encoder = (LabelEncoder().fit(self.labels))
 
 
     def read_line(self, line):
@@ -32,6 +36,7 @@ class AmazonDataset(Dataset):
         labels = []
         pos_path = os.path.join(self.domain_dir_path, 'positive.review')
         neg_path = os.path.join(self.domain_dir_path, 'negative.review')
+        print (pos_path)
         with open(pos_path, encoding='utf-8') as f_pos, open(neg_path, encoding='utf-8') as f_neg:
             for pos_line, neg_line in zip(f_pos, f_neg):
                 text, label = self.read_line(pos_line)
@@ -52,9 +57,10 @@ class AmazonDataset(Dataset):
     def __getitem__(self, idx):
         text = self.texts[idx]
         label = self.labels[idx]
+        label = self.label_encoder.transform([label])[0]
         for t in self.transforms:
             text = t(text)
-        return text, label, self.domain
+        return text, label, self.dl
                  
 if __name__ == '__main__':
     data = AmazonDataset('../../data/', 'books', [])
