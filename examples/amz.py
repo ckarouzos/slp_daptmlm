@@ -10,7 +10,7 @@ from torch.optim import Adam
 from torch.utils.data import Dataset, DataLoader, ConcatDataset, SubsetRandomSampler
 
 from slp.data.collators import DACollator
-from slp.data.data_amz import AmazonDataset
+from slp.data.amazon import AmazonDataset
 from slp.data.transforms import SpacyTokenizer, ToTokenIds, ToTensor
 from slp.modules.daclassifier import DAClassifier, DALoss
 from slp.modules.rnn import WordRNN
@@ -29,7 +29,7 @@ def transform_d(output):
     return d_pred, d_targets
 
 DEVICE = 'cpu'
-#DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+#DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
 collate_fn = DACollator(device='cpu')
 
@@ -77,16 +77,16 @@ if __name__ == '__main__':
 
     d1 = AmazonDataset('../data/', 'books')
     d1 = d1.map(tokenizer).map(to_token_ids).map(to_tensor)
-    d2 = AmazonDataset('../data/', 'dvd')
+    d2 = AmazonDataset('../data/', 'moovies')
     #d2 = d2.map(tokenizer).map(to_token_ids).map(to_tensor)
     dataset = ConcatDataset([d1, d2])
 
-    train_loader, dev_loader = train_test_split(dataset, 32, 128)
+    train_loader, dev_loader = train_test_split(dataset, 64, 64)
   
     model = DAClassifier(
         WordRNN(256, embeddings, bidirectional=True, merge_bi='cat',
                 packed_sequence=True, attention=True, device=DEVICE),
-        512, 3, 2)
+        512, 2, 2)
 
     optimizer = Adam([p for p in model.parameters() if p.requires_grad],
                      lr=1e-3)
