@@ -16,7 +16,7 @@ from typing import cast, List, Optional, Tuple, TypeVar
 from slp.util import types
 from slp.util.parallel import DataParallelModel, DataParallelCriterion
 
-from slp.trainer.handlers import CheckpointHandler, EvaluationHandler
+from slp.trainer.handlers import CheckpointHandler, EvaluationHandler, PeriodicNewbob
 from slp.util import from_checkpoint, to_device
 from slp.util import log
 from slp.util import system
