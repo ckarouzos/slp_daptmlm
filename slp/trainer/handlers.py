@@ -68,3 +68,15 @@ class EvaluationHandler(object):
             Events.EPOCH_COMPLETED,
             self, evaluator, dataloader,
             validation=validation)
+
+class PeriodicNewbob(object):
+    def __init__(self, period):
+        self.period = period
+
+    def __call__(self, engine: Engine, optimizer):
+        if engine.state.epoch % self.period == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] / 2.
+
+    def attach(self, engine: Engine, optimizer):
+        engine.add_event_handler(Events.EPOCH_COMPLETED, self, optimizer)
