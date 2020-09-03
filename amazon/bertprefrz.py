@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-
 from ignite.metrics import Loss, Accuracy
 from sklearn.preprocessing import LabelEncoder
 
@@ -23,11 +22,11 @@ from slp.util.parallel import DataParallelCriterion, DataParallelModel
 import argparse
 parser = argparse.ArgumentParser(description="Domains and losses")
 parser.add_argument("-s", "--source", default="books", help="Source Domain")
-#parser.add_argument("-t", "--target", default="dvd", help="Target Domain")
+parser.add_argument("-t", "--target", default="dvd", help="Target Domain")
 args = parser.parse_args()
 SOURCE = args.source
-#TARGET = args.target
-targets = ["dvd", "books", "electronics", "kitchen"]
+TARGET = args.target
+#targets = ["dvd", "books", "electronics", "kitchen"]
 
 def transform_pred_tar(output):
     y_pred, targets, d  = output
@@ -85,8 +84,11 @@ if __name__ == '__main__':
         drop_last=False,
         collate_fn=collate_fn)
     
+    #config = BertConfig.from_json_file('./config.json')
     #bertmodel = BertModel.from_pretrained('bert-base-uncased')
-    model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
+    model = BertForSequenceClassification.from_pretrained('./oele')
+    for names, parameters in model.bert.named_parameters():
+        parameters.requiers_grad=False
 
     #optimizer = Adam([p for p in model.parameters() if p.requires_grad], lr=1e-3)
     optimizer = AdamW(model.parameters(), lr=1e-5, correct_bias=False)
@@ -110,13 +112,14 @@ if __name__ == '__main__':
                       checkpoint_dir='./checkpoints/bert',
                       model_checkpoint='experiment_model.best.pth',
                       device=DEVICE)
-    for TARGET in targets:
-        dataset2 = AmazonZiser17(ds=TARGET, dl=1, labeled=True, train=False)
-        test_loader = DataLoader(
-            dataset2,
-            batch_size=1,
-            drop_last=False,
-            collate_fn=collate_fn)
-        print(SOURCE)
-        print(TARGET)
-        print(evaluation(trainer, test_loader, DEVICE))
+    #for TARGET in targets:
+    dataset2 = AmazonZiser17(ds=TARGET, dl=1, labeled=True, train=False)
+    test_loader = DataLoader(
+         dataset2,
+         batch_size=1,
+         drop_last=False,
+         collate_fn=collate_fn)
+    print(SOURCE)
+    print(TARGET)
+    print(evaluation(trainer, test_loader, DEVICE))
+

@@ -173,6 +173,9 @@ class Trainer(object):
         self.model.eval()
         with torch.no_grad():
             y_pred, targets = self.get_predictions_and_targets(batch)
+            #import ipdb; ipdb.set_trace()
+            if self.parallel:
+                y_pred = torch.reshape(torch.stack(tuple(y_pred)), (targets.size(0),2))
             return y_pred, targets
 
     def predict(self: TrainerType, dataloader: DataLoader) -> State:
@@ -360,7 +363,76 @@ class BertTrainer(Trainer):
     def get_predictions_and_targets(
             self: TrainerType,
             batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
-        inputs, target, segms, attention_masks = self.parse_batch(batch)
-        output = self.model(inputs, token_type_ids=segms)
-        output = torch.squeeze(output, dim=1)
+        inputs, target, _, _ = self.parse_batch(batch)
+        #import ipdb; ipdb.set_trace()
+        #output = [x[0] for x in self.model(inputs)]
+        output = self.model(inputs)[0]
+        #if not self.model.training:
+        #    import ipdb; ipdb.set_trace()
+        #output = torch.squeeze(output, dim=1)
         return output, target
+
+class BertVADATrainer(Trainer):
+    def __init__(self, *args, newbob_period=1, **kwargs):
+        super(BertVADATrainer, self).__init__(*args, **kwargs)
+        self.newbob = PeriodicNewbob(newbob_period)
+        self.newbob.attach(self.valid_evaluator, self.optimizer)
+    
+    def parse_batch(
+            self,
+            batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
+        inputs = to_device(batch[0],
+                            device=self.device,
+                            non_blocking=self.non_blocking)
+        targets = to_device(batch[1],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        domains = to_device(batch[2],
+                            device=self.device,
+                            non_blocking=self.non_blocking)
+        segms = to_device(batch[3],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        attention_masks = to_device(batch[4],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        return inputs, targets, domains, segms, attention_masks
+
+    def get_predictions_and_targets(
+            self: TrainerType,
+            batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
+        inputs, targets, domains, segms, attention_masks  = self.parse_batch(batch)
+        y_pred, d_pred = self.model(inputs)
+        return y_pred, targets, d_pred, domains, inputs
+
+    def train_step(self: TrainerType,
+                   engine: Engine,
+                   batch: List[torch.Tensor]) -> float:
+        self.model.train()
+        y_pred, targets, d_pred, domains, inputs = self.get_predictions_and_targets(batch)
+        #import ipdb; ipdb.set_trace()
+        loss = self.loss_fn(y_pred, targets, d_pred, domains, inputs, engine.state.epoch, self.trainer.state.iteration)  # type: ignore
+        if self.parallel:
+            loss = loss.mean()
+        loss = loss / self.accumulation_steps
+        loss.backward(retain_graph=self.retain_graph)
+        if (self.trainer.state.iteration + 1) % self.accumulation_steps == 0:
+            self.optimizer.step()  # type: ignore
+            self.optimizer.zero_grad()
+        loss_value: float = loss.item()
+        return loss_value
+
+    def eval_step(
+            self: TrainerType,
+            engine: Engine,
+            batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
+        self.model.eval()
+        with torch.no_grad():
+            y_pred, targets, d_pred, domains, inputs = self.get_predictions_and_targets(batch)
+            #import ipdb; ipdb.set_trace()
+            d = {'domain_pred'  : d_pred,
+		        'domain_targets'  : domains,
+                'inputs' : inputs,
+                'epoch' : engine.state.epoch}
+            return y_pred, targets, d
+      

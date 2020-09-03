@@ -6,18 +6,14 @@ from transformers import *
 from slp.util import mktensor
 
 
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+#DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def preprocessing (sequence, tokenizer):
-    #import ipdb; ipdb.set_trace()
-    sequence.insert(0, "[CLS]")
-    sequence.insert(len(sequence), "[SEP]")
-    text = tokenizer.convert_tokens_to_ids(sequence)
-    text = mktensor(text, device=DEVICE, dtype=torch.long)
+    text = torch.tensor(tokenizer.encode(sequence, add_special_tokens=True, truncation=True, max_length=510), dtype=torch.long)
     return text
 
 class AmazonZiser17(Dataset):
-    def __init__(self, ds="books", dl=0, labeled=True):
+    def __init__(self, ds="books", dl=0, labeled=True, train=True):
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
         self.labels = []
         self.reviews = []
@@ -27,8 +23,11 @@ class AmazonZiser17(Dataset):
         if labeled:
             labf = "all.txt"
         else:
-            labf = "unl.txt"  
-        file = os.path.join("../slpdata/amazon/ziser17", ds, labf)
+            labf = "unl.txt"
+        if train:
+            file = os.path.join("../slpdata/amazon/ziser17", ds, labf)
+        else:
+            file = os.path.join("../slpdata/amazon/ziser17", ds, labf)
         with open(file) as f:
             for row in f:
                 if labf == "unl.txt":
@@ -36,8 +35,10 @@ class AmazonZiser17(Dataset):
                     review = row[3:]
                 else:
                     label, review = int(row[0]), row[2:]
-                if len(review)>10000:
-                   review = review[:10000]
+                review = self.tokenizer.encode(review, add_special_tokens=True, max_length=510)
+                if len(review)>511:
+                   print(review)
+                review=torch.tensor(review, dtype=torch.long)
                 self.labels.append(label)
                 self.reviews.append(review)
                 self.domains.append(self.domain)
@@ -51,20 +52,38 @@ class AmazonZiser17(Dataset):
 
     def __getitem__(self, idx):
         review = self.reviews[idx]
-        review = torch.tensor(self.tokenizer.encode(review, add_special_tokens=True), dtype=torch.long)
         label = self.labels[idx]
         domain = self.domains[idx]
         return review, label#, domain
 
+class NewLabelsData(Dataset):
+    def __init__(self, old, indices, newlabels):
+        self.old = old
+        self.indices = indices
+        self.labels = newlabels
+        self.reviews = []
+        for i in self.indices:
+            r,_ = self.old[i]
+            self.reviews.append(r)
+        
+    def __len__(self):
+        return len(self.reviews)
+
+    def __getitem__(self, idx):
+        review = self.reviews[idx]
+        label = self.labels[idx]
+        return review, label
+
 if __name__ == '__main__':
     data = AmazonZiser17()
-    i  = 0 
-    maxd = 0
-    for d in data:
-        i = i + 1
-        r, l = d
-        print (len(r))
-        if len(r)> maxd:
-            maxd = len(r)
-    print (i)
-    print (maxd)
+    indices = [100, 4, 18]
+    newlab = [1, 0, 1]
+    newdata = NewLabelsData(data, indices, newlab)
+    import ipdb; ipdb.set_trace()
+    for d in newdata:
+        print(d)
+    #for d in data:
+    #    import ipdb; ipdb.set_trace()
+    #    r,l = d
+    #    print(l)
+

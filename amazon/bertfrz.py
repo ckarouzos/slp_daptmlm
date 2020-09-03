@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-
 from ignite.metrics import Loss, Accuracy
 from sklearn.preprocessing import LabelEncoder
 
@@ -87,6 +86,8 @@ if __name__ == '__main__':
     
     #bertmodel = BertModel.from_pretrained('bert-base-uncased')
     model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
+    for names, parameters in model.bert.named_parameters():
+        parameters.requiers_grad=False
 
     #optimizer = Adam([p for p in model.parameters() if p.requires_grad], lr=1e-3)
     optimizer = AdamW(model.parameters(), lr=1e-5, correct_bias=False)
@@ -120,3 +121,4 @@ if __name__ == '__main__':
         print(SOURCE)
         print(TARGET)
         print(evaluation(trainer, test_loader, DEVICE))
+
