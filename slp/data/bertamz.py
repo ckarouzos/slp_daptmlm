@@ -13,7 +13,7 @@ def preprocessing (sequence, tokenizer):
     return text
 
 class AmazonZiser17(Dataset):
-    def __init__(self, ds="books", dl=0, labeled=True, train=True):
+    def __init__(self, ds="books", dl=0, labeled=True, cldata=True):
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
         self.labels = []
         self.reviews = []
@@ -24,8 +24,8 @@ class AmazonZiser17(Dataset):
             labf = "all.txt"
         else:
             labf = "unl.txt"
-        if train:
-            file = os.path.join("../slpdata/amazon/ziser17", ds, labf)
+        if cldata:
+            file = os.path.join("../slpdata/amazon/cldata", ds, labf)
         else:
             file = os.path.join("../slpdata/amazon/ziser17", ds, labf)
         with open(file) as f:
@@ -53,7 +53,7 @@ class AmazonZiser17(Dataset):
     def __getitem__(self, idx):
         review = self.reviews[idx]
         label = self.labels[idx]
-        domain = self.domains[idx]
+        #domain = self.domains[idx]
         return review, label#, domain
 
 class NewLabelsData(Dataset):
@@ -73,6 +73,11 @@ class NewLabelsData(Dataset):
         review = self.reviews[idx]
         label = self.labels[idx]
         return review, label
+
+    def augment(self, newreviews, newlabels):
+        self.reviews = self.reviews + newreviews
+        self.labels = self.labels + newlabels
+
 
 if __name__ == '__main__':
     data = AmazonZiser17()

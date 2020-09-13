@@ -16,7 +16,7 @@ from typing import cast, List, Optional, Tuple, TypeVar
 from slp.util import types
 from slp.util.parallel import DataParallelModel, DataParallelCriterion
 
-from slp.trainer.handlers import CheckpointHandler, EvaluationHandler, PeriodicNewbob
+from slp.trainer.handlers import CheckpointHandler, EvaluationHandler, PeriodicNewbob, AugmentDataset
 from slp.util import from_checkpoint, to_device
 from slp.util import log
 from slp.util import system
@@ -370,6 +370,60 @@ class BertTrainer(Trainer):
         #if not self.model.training:
         #    import ipdb; ipdb.set_trace()
         #output = torch.squeeze(output, dim=1)
+        return output, target
+
+class AugmentBertTrainer(Trainer):
+    def __init__(self, *args, newbob_period=1, **kwargs):
+        super(AugmentBertTrainer, self).__init__(*args, **kwargs)
+        self.newbob = PeriodicNewbob(newbob_period)
+        self.newbob.attach(self.valid_evaluator, self.optimizer)
+        self.augment = AugmentDataset()
+
+    def fit(self: TrainerType,
+        train_loader: DataLoader,
+        unlabeled_loader: DataLoader,
+        val_loader: DataLoader,
+        epochs: int = 50) -> State:
+        log.info(
+            'Trainer will run for\n'
+            f'model: {self.model}\n'
+            f'optimizer: {self.optimizer}\n'
+            f'loss: {self.loss_fn}')
+        self.val_handler.attach(self.trainer,
+                                self.train_evaluator,
+                                train_loader,
+                                validation=False)
+        self.val_handler.attach(self.trainer,
+                                self.valid_evaluator,
+                                val_loader,
+                                validation=True)
+        self.augment.attach(self.trainer, train_loader, unlabeled_loader, self.model, self.device)
+
+        self.model.zero_grad()
+        self.trainer.run(train_loader, max_epochs=epochs)
+
+    def parse_batch(
+            self,
+            batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
+        inputs = to_device(batch[0],
+                            device=self.device,
+                            non_blocking=self.non_blocking)
+        target = to_device(batch[1],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        segms = to_device(batch[2],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        attention_masks = to_device(batch[3],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        return inputs, target, segms, attention_masks
+
+    def get_predictions_and_targets(
+            self: TrainerType,
+            batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
+        inputs, target, _, _ = self.parse_batch(batch)
+        output = self.model(inputs)[0]
         return output, target
 
 class BertVADATrainer(Trainer):

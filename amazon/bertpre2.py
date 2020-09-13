@@ -1,5 +1,5 @@
 import numpy as np
-
+import os
 import torch
 import torch.nn as nn
 
@@ -15,7 +15,7 @@ from slp.data.bertamz import AmazonZiser17, NewLabelsData
 from slp.data.transforms import SpacyTokenizer, ToTokenIds, ToTensor
 from slp.modules.classifier import BertClassifier
 from slp.modules.rnn import WordRNN
-from slp.trainer.trainer import BertTrainer
+from slp.trainer.trainer import BertTrainer, AugmentBertTrainer
 from slp.util.embeddings import EmbeddingsLoader
 from slp.util.parallel import DataParallelCriterion, DataParallelModel
 
@@ -73,10 +73,10 @@ def prediction(trainer, test_loader, device):
             else:
                neg.append((index, pred[0][0]))
                b=b+1
-        pos.sort(reverse=True, key=lambda tup: tup[1])
-        neg.sort(reverse=True, key=lambda tup: tup[1])
-        pos = pos[:1000]
-        neg = neg[:1000]
+        #pos.sort(reverse=True, key=lambda tup: tup[1])
+        #neg.sort(reverse=True, key=lambda tup: tup[1])
+        #pos = pos[:1000]
+        #neg = neg[:1000]
         all = []
         labels = []
         for a,b in neg:
@@ -89,12 +89,12 @@ def prediction(trainer, test_loader, device):
 
 #DEVICE = 'cpu'
 #DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 collate_fn = BertCollator(device='cpu')
 
 if __name__ == '__main__':
-    dataset = AmazonZiser17(ds=SOURCE, dl=0, labeled=True)
+    dataset = AmazonZiser17(ds=SOURCE, dl=0, labeled=True, cldata=False)
 
     dataset_size = len(dataset)
     indices = list(range(dataset_size))
@@ -119,13 +119,13 @@ if __name__ == '__main__':
         collate_fn=collate_fn)
 
     if TARGET == "books":
-       pre = './abooks'
+       pre = './sbooks'
     elif TARGET == "dvd":
-       pre = './advd'
+       pre = './sdvd'
     elif TARGET == "electronics":
-       pre = './aele'
+       pre = './sele'
     else:
-       pre = './akit'
+       pre = './skit'
 
     #config = BertConfig.from_json_file('./config.json')
     #bertmodel = BertModel.from_pretrained('bert-base-uncased')
@@ -140,9 +140,10 @@ if __name__ == '__main__':
         'loss': Loss(criterion),
         'accuracy': Accuracy()
     }
-    trainer = BertTrainer(model, optimizer,
+    path=SOURCE+TARGET
+    trainer = AugmentBertTrainer(model, optimizer,
                       newbob_period=3,
-                      checkpoint_dir='./checkpoints/bert',
+                      checkpoint_dir=os.path.join('./checkpoints/bert', path),
                       metrics=metrics,
                       non_blocking=True,
                       retain_graph=True,
@@ -150,60 +151,70 @@ if __name__ == '__main__':
                       loss_fn=criterion,
                       device=DEVICE,
                       parallel=False)
-    trainer.fit(train_loader, val_loader, epochs=10)
-    trainer = BertTrainer(model, optimizer=None,
-                      checkpoint_dir='./checkpoints/bert',
-                      model_checkpoint='experiment_model.best.pth',
-                      device=DEVICE)
-    dataset2 = AmazonZiser17(ds=TARGET, dl=1, labeled=False, train=True)
-    test_loader = DataLoader(
+
+    dataset2 = AmazonZiser17(ds=TARGET, dl=1, labeled=False, cldata=True)
+    unlabeled_loader = DataLoader(
          dataset2,
          batch_size=1,
          drop_last=False,
          collate_fn=collate_fn)
 
-    indices, labels = prediction(trainer, test_loader, DEVICE)
-    newdataset = NewLabelsData(dataset2, indices, labels)
-    dataset_size = len(newdataset)
-    indx = list(range(dataset_size))
-    perm = torch.randperm(len(indx))
-    val_size = 0.2
-    val_split = int(np.floor(val_size * dataset_size))
-    train_indices = perm[val_split:]
-    val_indices = perm[:val_split]
-    train_sampler = SubsetRandomSampler(train_indices)
-    val_sampler = SubsetRandomSampler(val_indices)
-    
-    new_loader = DataLoader(
-        newdataset,
-        batch_size=4,
-        sampler=train_sampler,
-        drop_last = False,
-        collate_fn=collate_fn
-    )
-    new_val_loader = DataLoader(
-        newdataset,
-        batch_size=4,
-        sampler=val_sampler,
-        drop_last=False,
-        collate_fn=collate_fn)
-    trainer = BertTrainer(model, optimizer,
-                      newbob_period=3,
-                      checkpoint_dir='./checkpoints/final',
-                      metrics=metrics,
-                      non_blocking=True,
-                      retain_graph=True,
-                      patience=3,
-                      loss_fn=criterion,
-                      device=DEVICE,
-                      parallel=False)
-    trainer.fit(train_loader, val_loader, epochs=10)
-
-    trainer = BertTrainer(model, optimizer=None,
-                      checkpoint_dir='./checkpoints/final',
+    trainer.fit(train_loader, unlabeled_loader, val_loader, epochs=10)
+    trainer = AugmentBertTrainer(model, optimizer=None,
+                      checkpoint_dir=os.path.join('./checkpoints/bert',path),
                       model_checkpoint='experiment_model.best.pth',
                       device=DEVICE)
-    dataset2 = AmazonZiser17(ds=TARGET, dl=1, labeled=True, train=False)
+
+    dataset2 = AmazonZiser17(ds=TARGET, dl=1, labeled=True, cldata=False)
+    #dataset2 = AmazonZiser17(ds=TARGET, dl=1, labeled=False, cldata=True)
+    #test_loader = DataLoader(
+     #    dataset2,
+     #    batch_size=1,
+     #    drop_last=False,
+     #    collate_fn=collate_fn)
+
+    #indices, labels = prediction(trainer, test_loader, DEVICE)
+    #newdataset = NewLabelsData(dataset2, indices, labels)
+    #dataset_size = len(newdataset)
+    #indx = list(range(dataset_size))
+    #perm = torch.randperm(len(indx))
+    #val_size = 0.2
+    #val_split = int(np.floor(val_size * dataset_size))
+    # train_indices = perm[val_split:]
+    #val_indices = perm[:val_split]
+    #train_sampler = SubsetRandomSampler(train_indices)
+    #val_sampler = SubsetRandomSampler(val_indices)
+    #
+    #new_loader = DataLoader(
+    #    newdataset,
+    #    batch_size=4,
+    #    sampler=train_sampler,
+    #    drop_last = False,
+    #    collate_fn=collate_fn
+    #)
+    #new_val_loader = DataLoader(
+    #    newdataset,
+    #    batch_size=4,
+    #    sampler=val_sampler,
+    #    drop_last=False,
+    #    collate_fn=collate_fn)
+    #trainer = BertTrainer(model, optimizer,
+    #                  newbob_period=3,
+    #                  checkpoint_dir=os.path.join('./checkpoints/final',path),
+    #                  metrics=metrics,
+    #                  non_blocking=True,
+    #                  retain_graph=True,
+    #                  patience=2,
+    #                  loss_fn=criterion,
+    #                  device=DEVICE,
+    #                  parallel=False)
+    #trainer.fit(train_loader, val_loader, epochs=10)
+
+    #trainer = BertTrainer(model, optimizer=None,
+    #                  checkpoint_dir=os.path.join('./checkpoints/final',path),
+    #                  model_checkpoint='experiment_model.best.pth',
+    #                  device=DEVICE)
+
     final_test_loader = DataLoader(
          dataset2,
          batch_size=1,
