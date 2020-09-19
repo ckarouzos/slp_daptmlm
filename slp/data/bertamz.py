@@ -53,8 +53,8 @@ class AmazonZiser17(Dataset):
     def __getitem__(self, idx):
         review = self.reviews[idx]
         label = self.labels[idx]
-        #domain = self.domains[idx]
-        return review, label#, domain
+        domain = self.domains[idx]
+        return review, label, domain
 
 class NewLabelsData(Dataset):
     def __init__(self, old, indices, newlabels):

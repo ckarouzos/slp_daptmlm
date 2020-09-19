@@ -372,6 +372,67 @@ class BertTrainer(Trainer):
         #output = torch.squeeze(output, dim=1)
         return output, target
 
+class DoubleBertTrainer(Trainer):
+    def __init__(self, *args, newbob_period=1, **kwargs):
+        super(DoubleBertTrainer, self).__init__(*args, **kwargs)
+        self.newbob = PeriodicNewbob(newbob_period)
+        self.newbob.attach(self.valid_evaluator, self.optimizer)
+    
+    def parse_batch(
+            self,
+            batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
+        inputs = to_device(batch[0],
+                            device=self.device,
+                            non_blocking=self.non_blocking)
+        target = to_device(batch[1],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        domain = to_device(batch[2],
+                            device=self.device,
+                           non_blocking=self.non_blocking)
+        segms = to_device(batch[3],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        attention_masks = to_device(batch[4],
+                           device=self.device,
+                           non_blocking=self.non_blocking)
+        return inputs, target, domain, segms, attention_masks
+    
+    def get_predictions_and_targets(
+            self: TrainerType,
+            batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
+        inputs, target, domains, _, _ = self.parse_batch(batch)
+        import ipdb; ipdb.set_trace()
+        loss, output = self.model(inputs, domains[0])
+        return loss, output, target, domains
+
+    def train_step(self: TrainerType,
+                   engine: Engine,
+                   batch: List[torch.Tensor]) -> float:
+        self.model.train()
+        loss, y_pred, targets, domains = self.get_predictions_and_targets(batch)
+        #loss = self.loss_fn(y_pred, targets, domains)  # type: ignore
+        #if self.parallel:
+        #    loss = loss.mean()
+        #loss = loss / self.accumulation_steps
+        loss.backward(retain_graph=self.retain_graph)
+        if (self.trainer.state.iteration + 1) % self.accumulation_steps == 0:
+            self.optimizer.step()  # type: ignore
+            self.optimizer.zero_grad()
+        loss_value: float = loss.item()
+        return loss_value
+
+    def eval_step(
+            self: TrainerType,
+            engine: Engine,
+            batch: List[torch.Tensor]) -> Tuple[torch.Tensor, ...]:
+        self.model.eval()
+        with torch.no_grad():
+            loss, y_pred, targets, domains = self.get_predictions_and_targets(batch)
+            d = {'domains'  : domains}
+            return y_pred, targets, d
+
+
 class AugmentBertTrainer(Trainer):
     def __init__(self, *args, newbob_period=1, **kwargs):
         super(AugmentBertTrainer, self).__init__(*args, **kwargs)
