@@ -1,11 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data.sampler import Sampler
+from torch.nn.utils.rnn import pad_sequence
+from torch.nn import CrossEntropyLoss, MSELoss
 from torch.autograd import Variable
 from slp.modules.regularization import GaussianNoise
+from slp.util import mktensor
 import numpy as np
 
 from transformers import *
+from transformers.modeling_bert import BertPreTrainingHeads
 
 class DoubleHeadBert(BertPreTrainedModel):
     def __init__(self, config):
@@ -17,13 +22,6 @@ class DoubleHeadBert(BertPreTrainedModel):
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
         self.init_weights()
     
-    @add_start_docstrings_to_callable(BERT_INPUTS_DOCSTRING.format("(batch_size, sequence_length)"))
-    @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="bert-base-uncased",
-        output_type=SequenceClassifierOutput,
-        config_class=_CONFIG_FOR_DOC,
-    )
 
     def forward(
         self,
@@ -39,19 +37,19 @@ class DoubleHeadBert(BertPreTrainedModel):
         output_hidden_states=None,
         return_dict=None,
     ):
-
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
+        #import ipdb; ipdb.set_trace()
+        #return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = False
         outputs = self.bert(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
+            input_ids#,
+            #attention_mask=attention_mask,
+            #token_type_ids=token_type_ids,
+            #position_ids=position_ids,
+            #head_mask=head_mask,
+            #inputs_embeds=inputs_embeds,
+            #output_attentions=output_attentions,
+            #output_hidden_states=output_hidden_states,
+            #return_dict=return_dict,
         )
 
         sequence_output, pooled_output = outputs[:2]
@@ -60,7 +58,7 @@ class DoubleHeadBert(BertPreTrainedModel):
         logits = self.classifier(pooled_output)
 
         loss = None
-        if source:
+        if source == 0 :
             if labels is not None:
                 if self.num_labels == 1:
                     #  We are doing regression
@@ -74,13 +72,13 @@ class DoubleHeadBert(BertPreTrainedModel):
             return ((loss,) + output) if loss is not None else output
         else:    
             total_loss = None
-            if labels is not None and next_sentence_label is not None:
+            if labels is not None: #and next_sentence_label is not None:
                 loss_fct = CrossEntropyLoss()
                 masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
-                next_sentence_loss = loss_fct(seq_relationship_score.view(-1, 2), next_sentence_label.view(-1))
-                total_loss = masked_lm_loss + next_sentence_loss
+                #next_sentence_loss = loss_fct(seq_relationship_score.view(-1, 2), next_sentence_label.view(-1))
+                total_loss = masked_lm_loss #+ next_sentence_loss
             
-            output = (prediction_scores, seq_relationship_score) + outputs[2:]
+            output = (prediction_scores,) + outputs[2:]
             return ((total_loss,) + output) if total_loss is not None else output
 
 class BertDCollator(object):
@@ -109,9 +107,15 @@ class BertDCollator(object):
         inputs = mktensor(inputs, device=self.device, dtype=torch.long)
         targets = mktensor(targets, device=self.device, dtype=torch.long)
         domains = mktensor(domains, device=self.device, dtype=torch.long)
-        return inputs,  targets.to(self.device), domains.to(self.device)
+        return inputs, targets.to(self.device), domains.to(self.device)
 
 class BertLMCollator(object):
+
+    #tokenizer: PreTrainedTokenizer
+    #mlm = True
+    #mlm_probability = 0.15
+    #pad_indx = 0
+    #device  = 'cpu'
     def __init__(self, tokenizer, pad_indx=0, mlm=True, mlm_probability=0.15, device='cpu'):
         self.device = device
         self.mlm = mlm
@@ -131,6 +135,7 @@ class BertLMCollator(object):
             )
         labels = inputs.clone()
         # We sample a few tokens in each sequence for masked-LM training (with probability args.mlm_probability defaults to 0.15 in Bert/RoBERTa)
+        #import ipdb; ipdb.set_trace()
         probability_matrix = torch.full(labels.shape, self.mlm_probability)
         special_tokens_mask = [
             self.tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in labels.tolist()
@@ -184,7 +189,7 @@ class DoubleBertCollator(object):
         inputs, targets, domains = self.get_inputs_and_targets(batch)
         if domains[0]==0:
             return self.collatorA(batch)
-        else 
+        else: 
             return self.collatorB(batch)
 
 class DoubleSubsetRandomSampler(Sampler):
@@ -202,7 +207,7 @@ class DoubleSubsetRandomSampler(Sampler):
         t = 0
         for i,s in enumerate(perm,1):
             yield self.indices_source[s]
-            if i % self.num_source = 0:
+            if i % self.num_source == 0:
                 for j in range(self.num_target):
                     t = T + j
                     yield self.s_dataset_size + self.indices_target[tarperm[t]]
@@ -212,3 +217,16 @@ class DoubleSubsetRandomSampler(Sampler):
         full = int(np.floor((len(self.indices_source) +len(self.indices_target)) / self.num_source))
         last = len(self.indices_source) % self.num_source
         return int(full * self.num_source + last)
+
+class DoubleLoss(nn.Module):
+   def __init__(self, loss_fn):
+       super(DoubleLoss, self).__init__()
+       self.loss_fn = loss_fn
+   
+   def forward(self, pred, tar, domains):
+       #import ipdb; ipdb.set_trace()
+       if not domains[0]:
+          loss = self.loss_fn(pred, tar)
+       else:
+          loss = torch.tensor(0)
+       return loss

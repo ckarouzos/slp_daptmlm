@@ -12,11 +12,12 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset, SubsetRandomSam
 from slp.data.collators import BertCollator
 from transformers import *
 from slp.data.bertamz import AmazonZiser17, NewLabelsData
-from slp.modules.doublebert import DoubleHeadBert, DoubleBertCollator
+from slp.modules.doublebert import DoubleHeadBert, DoubleBertCollator, DoubleLoss
 from slp.data.transforms import SpacyTokenizer, ToTokenIds, ToTensor
 from slp.modules.classifier import BertClassifier
+from slp.modules.doublebert import *
 from slp.modules.rnn import WordRNN
-from slp.trainer.trainer import BertTrainer, AugmentBertTrainer
+from slp.trainer.trainer import BertTrainer, AugmentBertTrainer, DoubleBertTrainer
 from slp.util.embeddings import EmbeddingsLoader
 from slp.util.parallel import DataParallelCriterion, DataParallelModel
 
@@ -31,7 +32,11 @@ TARGET = args.target
 
 def transform_pred_tar(output):
     y_pred, targets, d  = output
+    doms = d['domains']
+    #if not doms[0]:
     return y_pred, targets
+    #else:
+    #   import ipdb; ipdb.set_trace()
 
 def transform_d(output):
     y_pred, targets, d = output
@@ -48,19 +53,20 @@ def evaluation(trainer, test_loader, device):
         for index, batch in enumerate(test_loader):
             inputs = batch[0].to(device)
             label = batch[1].to(device)
+            domain = batch[2].to(device)
             #import ipdb; ipdb.set_trace()
-            pred = trainer.model(inputs)[0]
+            pred = trainer.model(inputs, source=domain[0])[0]
             metric.update((pred, label))
     acc = metric.compute()
     return acc
 
-DEVICE = 'cpu'
+#DEVICE = 'cpu'
 #DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-#DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 collate_fA = BertDCollator(device='cpu')
-collate_fB = BertLMCollator(tokenizer=...)
-collate_fn = DoubleBertCollator(collate_A, collate_B)
+collate_fB = BertLMCollator(tokenizer=BertTokenizer('./sdvd/vocab.txt', do_lower_case=True))
+collate_fn = DoubleBertCollator(collate_fA, collate_fB)
 
 def dataloaders_from_datasets(source_dataset, target_dataset,
                               batch_train, batch_val, circle,
@@ -85,7 +91,7 @@ def dataloaders_from_datasets(source_dataset, target_dataset,
         drop_last=False,
         collate_fn=collate_fn)
     val_loader = DataLoader(
-        train_dataset,
+        source_dataset,
         batch_size=batch_val,
         sampler=val_sampler,
         drop_last=False,
@@ -96,7 +102,7 @@ if __name__ == '__main__':
     dataset = AmazonZiser17(ds=SOURCE, dl=0, labeled=True, cldata=False)
     dataset2 = AmazonZiser17(ds=TARGET, dl=1, labeled=False, cldata=True)
     train_loader, val_loader = dataloaders_from_datasets(dataset, dataset2,
-                                                         4, 4, 4)
+                                                         4, 4, 8)
 
     if TARGET == "books":
        pre = './sbooks'
@@ -107,15 +113,16 @@ if __name__ == '__main__':
     else:
        pre = './skit'
 
-    model = DoubleHeadBert(pre)
+    model = DoubleHeadBert.from_pretrained(pre)
     #for names, parameters in model.bert.named_parameters():
     #    parameters.requiers_grad=False
 
     optimizer = AdamW(model.parameters(), lr=1e-5, correct_bias=False)
-    criterion = nn.CrossEntropyLoss() 
+    in_fn = nn.CrossEntropyLoss()
+    criterion = DoubleLoss(in_fn) 
     metrics = {
-        'loss': Loss(criterion),
-        'accuracy': Accuracy(transform_pred_tar)
+        'loss': Loss(criterion)
+        #'accuracy': Accuracy(transform_pred_tar)
     }
     path=SOURCE+TARGET
     trainer = DoubleBertTrainer(model, optimizer,
@@ -125,23 +132,24 @@ if __name__ == '__main__':
                       non_blocking=True,
                       retain_graph=True,
                       patience=3,
+                      accumulation_steps=5,
                       loss_fn=criterion,
                       device=DEVICE,
                       parallel=False)
 
-    trainer.fit(train_loader, unlabeled_loader, val_loader, epochs=10)
+    trainer.fit(train_loader, val_loader, epochs=10)
     trainer = DoubleBertTrainer(model, optimizer=None,
                       checkpoint_dir=os.path.join('./checkpoints/double',path),
                       model_checkpoint='experiment_model.best.pth',
                       device=DEVICE)
 
-    dataset3 = AmazonZiser17(ds=TARGET, dl=1, labeled=True, cldata=False)
+    dataset3 = AmazonZiser17(ds=TARGET, dl=0, labeled=True, cldata=False)
 
     final_test_loader = DataLoader(
          dataset3,
          batch_size=1,
          drop_last=False,
-         collate_fn=collate_fn)
+         collate_fn=collate_fA)
 
     print(SOURCE)
     print(TARGET)
