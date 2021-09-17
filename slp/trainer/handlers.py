@@ -4,6 +4,9 @@ from ignite.contrib.handlers import ProgressBar
 from ignite.engine import Engine, Events
 from ignite.handlers import ModelCheckpoint, EarlyStopping
 from torch.utils.data import DataLoader
+import torch.nn as nn
+import torch
+import numpy as np
 
 from typing import Optional
 
@@ -68,3 +71,79 @@ class EvaluationHandler(object):
             Events.EPOCH_COMPLETED,
             self, evaluator, dataloader,
             validation=validation)
+
+class PeriodicNewbob(object):
+    def __init__(self, period):
+        self.period = period
+
+    def __call__(self, engine: Engine, optimizer):
+        if engine.state.epoch % self.period == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] / 2.
+
+    def attach(self, engine: Engine, optimizer):
+        engine.add_event_handler(Events.EPOCH_COMPLETED, self, optimizer)
+
+class AugmentDataset(object):
+
+    def predictions(self, model, unlabeled_loader, device):
+        model.eval()
+        pos = []
+        neg = []
+        soft = nn.Softmax(dim=1)
+        with torch.no_grad():
+            for index, batch in enumerate(unlabeled_loader):
+                inp = batch[0][0]
+                inputs = batch[0].to(device)
+                pred = soft(model(inputs)[0])
+                if pred[0][1] > pred[0][0]:
+                    pos.append((inp, pred[0][1]))
+                else:
+                    neg.append((inp, pred[0][0]))
+        pos.sort(reverse=True, key=lambda tup: tup[1])
+        neg.sort(reverse=True, key=lambda tup: tup[1])
+        top = 0.5
+        toppos = int(np.floor(top * len(pos)))
+        topneg = int(np.floor(top * len(neg)))
+        spos = pos[:toppos]
+        sneg = neg[:topneg]
+        selected = []
+        labels = []
+        for a,b in sneg:
+            selected.append(a)
+            labels.append(0)
+        for a,b in spos:
+            selected.append(a)
+            labels.append(1)
+        npos = pos[toppos:]
+        nneg = neg[topneg:]
+        unlabeled = []
+        for a,b in nneg:
+            unlabeled.append(a)
+        for a,b in npos:
+            unlabeled.append(a)
+        return selected, labels, unlabeled
+
+    def __call__(self, engine: Engine, dataloader: DataLoader, unlabeled_loader: DataLoader, model, device):
+        #predict new labels
+        well_predicted, new_labels, unlabaled = self.predictions(model, unlabeled_loader, device)
+        #add to labeled dataset + sampler
+        old_len = len(dataloader.dataset)
+        dataloader.dataset.reviews = dataloader.dataset.reviews + well_predicted
+        dataloader.dataset.labels = dataloader.dataset.labels + new_labels
+        new_len = len(dataloader.dataset)
+        new_indices = list(range(old_len, new_len))
+
+        dataloader.sampler.indices = torch.cat((dataloader.sampler.indices, torch.tensor(new_indices)))
+        #create new unlabeled
+        unlabeled_loader.dataset.reviews = unlabaled
+        unlabeled_loader.dataset.labels = [-1] * len(unlabaled)
+        new_len  = len(unlabeled_loader.dataset)
+        new_indices = list(range(new_len))
+        unlabeled_loader.sampler.indices = torch.tensor(new_indices)
+
+    def attach(self, engine: Engine, dataloader: DataLoader, unlabeled_loader: DataLoader, model, device):
+        engine.add_event_handler(
+            Events.EPOCH_COMPLETED,
+            self, dataloader, unlabeled_loader, 
+            model, device)
